@@ -10,19 +10,26 @@ public class ApiClient : MonoBehaviour
 {
     private const string EndpointItems = "items";
 
-    [Header("サーバー設定")] [Tooltip("GoサーバーのエンドポイントURL")] [SerializeField]
+    [Header("サーバー設定")]
+    [Tooltip("GoサーバーのエンドポイントURL")]
+    [SerializeField]
     private string _url = "http://localhost:8080/";
 
-    [Header("UI")] [Tooltip("POSTする名前を入力する欄")] [SerializeField]
+    [Header("UI")]
+    [Tooltip("POSTする名前を入力する欄")]
+    [SerializeField]
     private TMP_InputField _nameInput;
 
-    [Tooltip("GET を実行するボタン")] [SerializeField]
+    [Tooltip("GET を実行するボタン")]
+    [SerializeField]
     private Button _getButton;
 
-    [Tooltip("POST を実行するボタン")] [SerializeField]
+    [Tooltip("POST を実行するボタン")]
+    [SerializeField]
     private Button _postButton;
 
-    [Tooltip("通信結果を表示するテキスト")] [SerializeField]
+    [Tooltip("通信結果を表示するテキスト")]
+    [SerializeField]
     private TMP_Text _resultText;
 
 
@@ -36,6 +43,7 @@ public class ApiClient : MonoBehaviour
 
     private void OnClickPost()
     {
+        StartCoroutine(PostItem());
     }
 
     public IEnumerator GetItems()
@@ -81,6 +89,89 @@ public class ApiClient : MonoBehaviour
             SetResultText(_builder.ToString());
         }
     }
+
+
+    public IEnumerator PostItem()
+    {
+        // 入力チェック（サーバー側のバリデーションと同じ条件を先に弾く）
+        string name = _nameInput != null ? _nameInput.text : null;
+
+        if (string.IsNullOrEmpty(name)
+            || name == " "
+            || name == "　")
+        {
+            SetResultText("[POST] name を入力してください。");
+            yield break;
+        }
+
+        // {"name":"..."} の形に整形
+        string bodyJson = JsonUtility.ToJson(new CreateItemRequest(name));
+        byte[] bodyRaw = Encoding.UTF8.GetBytes(bodyJson);
+
+        // POST 送信。生 JSON を送るため UploadHandlerRaw を使う
+        using (UnityWebRequest request = new UnityWebRequest(_url + EndpointItems, UnityWebRequest.kHttpVerbPOST))
+        {
+            request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+            request.downloadHandler = new DownloadHandlerBuffer();
+            request.SetRequestHeader("Content-Type", "application/json");
+
+            SetInteractable(false);
+
+            // リクエストを送信して応答が返ってくるまで待つ
+            yield return request.SendWebRequest();
+
+            SetInteractable(true);
+
+            if (request.result != UnityWebRequest.Result.Success)
+            {
+                string msg = $"POST 失敗: {request.error}";
+                Debug.LogError(msg);
+                SetResultText(msg);
+                yield break;
+            }
+
+            // サーバーは追加された 1 件（{"id":..,"name":..}）を返す
+            string json = request.downloadHandler.text;
+            Item created = JsonUtility.FromJson<Item>(json);
+
+            _builder.Clear();
+            _builder.AppendLine("[POST] 登録完了");
+            _builder.AppendLine();
+
+            if (created == null)
+            {
+                _builder.AppendLine("(レスポンスの解析に失敗しました)");
+            }
+            else
+            {
+                _builder.AppendFormat("ID:{0}, Name:{1}", created.id, created.name);
+                _builder.AppendLine();
+            }
+
+            SetResultText(_builder.ToString());
+
+            // 送信後に入力欄をクリア（任意）
+            if (_nameInput != null)
+            {
+                _nameInput.text = string.Empty;
+            }
+        }
+    }
+
+    // 通信中にボタンを無効化して多重送信を防ぐ
+    private void SetInteractable(bool interactable)
+    {
+        if (_getButton != null)
+        {
+            _getButton.interactable = interactable;
+        }
+
+        if (_postButton != null)
+        {
+            _postButton.interactable = interactable;
+        }
+    }
+
 
     private void SetResultText(string text)
     {
